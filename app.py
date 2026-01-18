@@ -7,7 +7,7 @@ from dateutil.relativedelta import relativedelta
 st.set_page_config(page_title="高度経営シミュレーター", layout="wide")
 
 st.title("🏦 高度経営シミュレーター")
-st.caption("M4 MacBook Air 最適化 / 配色統一・高コントラストモデル")
+st.caption("M4 MacBook Air 最適化 / 不具合修正・高コントラスト完成モデル")
 
 # --- 1. 基準値入力 ---
 st.subheader("📌 シミュレーション基準値")
@@ -35,16 +35,30 @@ with col_input1:
     st.subheader("📝 案件別売上明細")
     default_projects = pd.DataFrame([{"案件名": "既存案件A", "月額売上(千円)": 10000, "入金サイト(ヶ月)": 1}])
     df_projects = st.data_editor(default_projects, num_rows="dynamic", use_container_width=True, key="proj_editor")
+
 with col_input2:
     st.subheader("🛠️ アクションプラン")
     action_categories = ["売上高", "売上原価", "販管費"]
+    # 初期値設定（エラー回避のためデフォルト値を網羅）
     default_actions = pd.DataFrame([{"計上種別": "売上高", "プラン名": "新規販路拡大", "月間効果額": 2000, "効果開始月": start_month + relativedelta(months=6)}])
-    df_actions = st.data_editor(default_actions, num_rows="dynamic", use_container_width=True, key="action_editor")
+    
+    # ① ドロップダウンリストの復活 & カレンダー入力の設定
+    df_actions = st.data_editor(
+        default_actions, 
+        num_rows="dynamic", 
+        use_container_width=True, 
+        key="action_editor",
+        column_config={
+            "計上種別": st.column_config.SelectboxColumn("計上種別", options=action_categories, required=True),
+            "効果開始月": st.column_config.DateColumn("効果開始月", format="YYYY/MM", required=True)
+        }
+    )
 
 # --- 3. 計算ロジック ---
 months = 60
 sim_data, current_debt, current_cash = [], init_debt, init_cash
-plan_names = df_actions["プラン名"].tolist() if not df_actions.empty else []
+# NaNを排除してプラン名リストを作成
+plan_names = df_actions["プラン名"].dropna().unique().tolist() if not df_actions.empty else []
 
 for m in range(months):
     target_date = start_month + relativedelta(months=m)
@@ -53,10 +67,15 @@ for m in range(months):
     base_revenue = df_projects["月額売上(千円)"].sum()
     
     action_rev, action_cos, action_sga, plan_impacts = 0, 0, 0, {name: 0 for name in plan_names}
+    
     if not df_actions.empty:
         for _, row in df_actions.iterrows():
+            # ② NaNチェックを追加してエラーを回避
+            if pd.isna(row["効果開始月"]) or pd.isna(row["プラン名"]):
+                continue
+                
             if target_date >= pd.to_datetime(row["効果開始月"]).date():
-                impact = row["月間効果額"]
+                impact = row["月間効果額"] if not pd.isna(row["月間効果額"]) else 0
                 plan_impacts[row["プラン名"]] = impact
                 if row["計上種別"] == "売上高": action_rev += impact
                 elif row["計上種別"] == "売上原価": action_cos += impact
@@ -68,6 +87,7 @@ for m in range(months):
     total_sga = (base_revenue * (gp_rate_val - op_rate_val)) + action_sga
     total_op = total_gp - total_sga
     total_ord = (total_rev * ord_rate_val) + (total_op - (base_revenue * op_rate_val))
+    
     tax_base = max(0, total_ord)
     tax = (min(tax_base, 8000/12) * 0.15) + (max(0, tax_base - 8000/12) * 0.232)
     net_profit = total_ord - tax
@@ -84,28 +104,24 @@ for m in range(months):
         "現預金残高": current_cash, "現預金月商倍率": current_cash / total_rev if total_rev > 0 else 0
     }
     res.update(plan_impacts); sim_data.append(res)
+
 df_all = pd.DataFrame(sim_data).fillna(0)
 
-# --- 4. プレミアム・レンダリング関数 (数値色を見出しと統一) ---
+# --- 4. プレミアム・レンダリング関数 ---
 def render_financial_table(df, height=350):
     format_dict = {c: "{:,.0f}" for c in df.columns if c not in ["年月", "年度", "現預金月商倍率"]}
     if "現預金月商倍率" in df.columns:
         format_dict["現預金月商倍率"] = "{:.2f}倍"
     
-    # 配色の定義
-    accent_color = "#38bdf8"  # 見出しと同じ鮮やかな青
-    bg_dark = "#0e1117"       # 背景色
-    border_color = "#374151"  # 境界線
+    accent_color = "#38bdf8"
+    bg_dark = "#0e1117"
+    border_color = "#374151"
     
     style = df.style.format(format_dict).set_table_styles([
         {'selector': 'table', 'props': [('width', '100%'), ('border-collapse', 'collapse'), ('font-family', 'sans-serif'), ('font-size', '13px'), ('background-color', bg_dark)]},
-        # ヘッダー設定
         {'selector': 'th', 'props': [('background-color', '#1f2937'), ('color', accent_color), ('position', 'sticky'), ('top', '0'), ('z-index', '10'), ('padding', '10px'), ('border', f'1px solid {border_color}')]},
-        # 行の設定（縞々）
         {'selector': 'tr:nth-child(even)', 'props': [('background-color', '#161b22')]},
-        # セル（数値）の設定：色を見出し（accent_color）に統一
         {'selector': 'td', 'props': [('padding', '8px'), ('border', f'1px solid {border_color}'), ('text-align', 'right'), ('color', accent_color)]},
-        # 一列目（年月/年度）だけは少し落ち着いた色に
         {'selector': 'td:first-child', 'props': [('text-align', 'center'), ('font-weight', 'bold'), ('color', '#94a3b8')]}
     ], overwrite=True)
 
@@ -136,7 +152,7 @@ with tab2:
     agg_dict.update({'現預金残高': 'last', '借入金残高': 'last'})
     
     df_yearly = df_all.groupby('年度').agg(agg_dict).reset_index()
-    df_yearly['現預金月商倍率'] = df_yearly['現預金残高'] / (df_yearly['売上高'] / 12)
+    df_yearly['現預金月商倍率'] = df_yearly['現預金残高'] / (df_yearly['売上高'] / 12) if not df_yearly.empty else 0
     
     st.subheader("📊 年次損益試算表サマリー")
     render_financial_table(df_yearly[["年度"] + [c for c in pl_cols if c != "年月"]])
