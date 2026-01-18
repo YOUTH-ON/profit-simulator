@@ -7,7 +7,7 @@ from dateutil.relativedelta import relativedelta
 st.set_page_config(page_title="高度経営シミュレーター", layout="wide")
 
 st.title("🏦 高度経営シミュレーター")
-st.caption("M4 MacBook Air 最適化 / 高コントラスト・デザイン / 財務三表分離版")
+st.caption("M4 MacBook Air 最適化 / 配色統一・高コントラストモデル")
 
 # --- 1. 基準値入力 ---
 st.subheader("📌 シミュレーション基準値")
@@ -86,23 +86,31 @@ for m in range(months):
     res.update(plan_impacts); sim_data.append(res)
 df_all = pd.DataFrame(sim_data).fillna(0)
 
-# --- 4. プレミアム・レンダリング関数 (高視認性・ダークモード固定) ---
+# --- 4. プレミアム・レンダリング関数 (数値色を見出しと統一) ---
 def render_financial_table(df, height=350):
     format_dict = {c: "{:,.0f}" for c in df.columns if c not in ["年月", "年度", "現預金月商倍率"]}
     if "現預金月商倍率" in df.columns:
         format_dict["現預金月商倍率"] = "{:.2f}倍"
     
-    # 背景を濃紺、文字を白に固定して、OSテーマに左右されない視認性を確保
+    # 配色の定義
+    accent_color = "#38bdf8"  # 見出しと同じ鮮やかな青
+    bg_dark = "#0e1117"       # 背景色
+    border_color = "#374151"  # 境界線
+    
     style = df.style.format(format_dict).set_table_styles([
-        {'selector': 'table', 'props': [('width', '100%'), ('border-collapse', 'collapse'), ('font-family', 'sans-serif'), ('font-size', '13px'), ('background-color', '#0e1117'), ('color', '#ffffff')]},
-        {'selector': 'th', 'props': [('background-color', '#1f2937'), ('color', '#38bdf8'), ('position', 'sticky'), ('top', '0'), ('z-index', '10'), ('padding', '10px'), ('border', '1px solid #374151')]},
+        {'selector': 'table', 'props': [('width', '100%'), ('border-collapse', 'collapse'), ('font-family', 'sans-serif'), ('font-size', '13px'), ('background-color', bg_dark)]},
+        # ヘッダー設定
+        {'selector': 'th', 'props': [('background-color', '#1f2937'), ('color', accent_color), ('position', 'sticky'), ('top', '0'), ('z-index', '10'), ('padding', '10px'), ('border', f'1px solid {border_color}')]},
+        # 行の設定（縞々）
         {'selector': 'tr:nth-child(even)', 'props': [('background-color', '#161b22')]},
-        {'selector': 'td', 'props': [('padding', '8px'), ('border', '1px solid #374151'), ('text-align', 'right')]},
+        # セル（数値）の設定：色を見出し（accent_color）に統一
+        {'selector': 'td', 'props': [('padding', '8px'), ('border', f'1px solid {border_color}'), ('text-align', 'right'), ('color', accent_color)]},
+        # 一列目（年月/年度）だけは少し落ち着いた色に
         {'selector': 'td:first-child', 'props': [('text-align', 'center'), ('font-weight', 'bold'), ('color', '#94a3b8')]}
     ], overwrite=True)
 
     html = f"""
-    <div style="height:{height}px; overflow:auto; border:1px solid #374151; border-radius:8px;">
+    <div style="height:{height}px; overflow:auto; border:1px solid {border_color}; border-radius:8px;">
         {style.to_html(index=False)}
     </div>
     """
@@ -115,7 +123,7 @@ with tab1:
     st.subheader("📋 損益試算表 (月次)")
     render_financial_table(df_all[pl_cols])
     
-    st.markdown("<div style='margin: 20px 0;'></div>", unsafe_allow_html=True)
+    st.markdown("<div style='margin: 25px 0;'></div>", unsafe_allow_html=True)
     
     cf_cols = ["年月", "当期純利益", "減価償却費", "簡易CF", "月返済額", "借入金残高", "現預金残高", "現預金月商倍率"]
     st.subheader("📋 簡易CF計算書 (月次)")
