@@ -4,10 +4,10 @@ from datetime import datetime, date
 from dateutil.relativedelta import relativedelta
 
 # ページ設定
-st.set_page_config(page_title="高度財務シミュレーター", layout="wide")
+st.set_page_config(page_title="損益・資金繰りシミュレーター", layout="wide")
 
-st.title("🏦 高度財務シミュレーター (三表連動・CF区分版)")
-st.caption("M4 MacBook Air 最適化 / 営業CF・財務CF区分ロジック搭載 / 単位：千円")
+st.title("📊 損益・資金繰りシミュレーター (簡便版)")
+st.caption("M4 MacBook Air 最適化 / 簡易CFベース資金推移 / 単位：千円")
 
 # --- 1. 基準値入力 ---
 st.subheader("📌 シミュレーション基準値")
@@ -97,27 +97,17 @@ for m in range(months):
     tax = (min(tax_base, 8000/12) * 0.15) + (max(0, tax_base - 8000/12) * 0.232)
     net_profit = total_ord - tax
 
-    # --- C/F 計算 (正確な区分計算) ---
-    # 1. 売上債権の増減 (入金サイト考慮)
-    for _, row in df_projects.iterrows():
-        c_date = target_date + relativedelta(months=int(row["入金サイト(ヶ月)"]))
-        collection_schedule[c_date] = collection_schedule.get(c_date, 0) + row["月額売上(千円)"]
+    # --- 簡便CF 計算 ---
+    # 簡易CF = 当期純利益 + 減価償却費
+    simple_cf = net_profit + monthly_depr
     
-    actual_cash_in = collection_schedule.get(target_date, 0) + action_rev
-    accounts_receivable_change = actual_cash_in - total_rev # 売上と入金の差額
-    
-    # 2. 営業活動によるCF
-    # ロジック: 当期純利益 + 減価償却費 + 売上債権増減
-    # ※原価・販管費は発生=支払と仮定
-    op_cf = net_profit + monthly_depr + accounts_receivable_change
-    
-    # 3. 財務活動によるCF
+    # 返済
     actual_repayment = min(current_debt, float(monthly_repayment_input))
-    fin_cf = -actual_repayment
     current_debt -= actual_repayment
     
-    # 4. 現金残高の更新
-    current_cash += (op_cf + fin_cf)
+    # 現預金増減 ＝ 簡易CF － 月返済額
+    cash_change = simple_cf - actual_repayment
+    current_cash += cash_change
     
     res = {
         "年度": f"{year_idx + 1}年目", "年月": target_date.strftime("%Y/%m"),
@@ -125,8 +115,8 @@ for m in range(months):
         "販管費": total_sga, "営業利益": total_op, "営業利益率": total_op/total_rev if total_rev!=0 else 0,
         "経常利益": total_ord, "経常利益率": total_ord/total_rev if total_rev!=0 else 0,
         "法人税等": tax, "当期純利益": net_profit,
-        "減価償却費": monthly_depr, "売上債権増減": accounts_receivable_change,
-        "営業活動によるCF": op_cf, "財務活動によるCF": fin_cf,
+        "減価償却費": monthly_depr, "簡易CF": simple_cf,
+        "月返済額": actual_repayment, "現預金増減": cash_change,
         "借入金残高": current_debt, "現預金残高": current_cash
     }
     res.update(plan_impacts)
@@ -137,7 +127,7 @@ df_all = pd.DataFrame(sim_data).fillna(0)
 # --- 4. 表示用 ---
 def format_df(df):
     format_dict = {c: "{:,.0f}" for c in df.columns if c not in ["年度", "年月", "売上総利益率", "営業利益率", "経常利益率"]}
-    format_dict.update({"売上総利益率": "{:.1%}", "営業利益率": "{:.1%}", "経常利益率": "{:.1%}", "減価償却費": "{:,.1f}"})
+    format_dict.update({"売上総利益率": "{:.1%}", "営業利益率": "{:.1%}", "経常利益率": "{:.1%}", "減価償却費": "{:,.1f}", "簡易CF": "{:,.1f}"})
     return df.style.format(format_dict)
 
 tab1, tab2 = st.tabs(["📅 月次シミュレーション", "📊 年次サマリー"])
@@ -149,7 +139,7 @@ with tab1:
     st.dataframe(format_df(df_all[pl_cols + plan_names]), use_container_width=True)
     
     st.subheader("📋 簡易CF計算書 (月次)")
-    cf_cols = ["年月", "当期純利益", "減価償却費", "売上債権増減", "営業活動によるCF", "財務活動によるCF", "借入金残高", "現預金残高"]
+    cf_cols = ["年月", "当期純利益", "減価償却費", "簡易CF", "月返済額", "現預金増減", "借入金残高", "現預金残高"]
     st.dataframe(format_df(df_all[cf_cols]), use_container_width=True)
 
 with tab2:
@@ -162,9 +152,9 @@ with tab2:
     st.subheader("📊 年次損益試算表")
     st.dataframe(format_df(df_yearly[["年度"] + pl_cols[1:] + plan_names]), use_container_width=True)
     
-    st.subheader("📊 年次キャッシュフロー計算書")
+    st.subheader("📊 年次簡易CF計算書")
     st.dataframe(format_df(df_yearly[["年度"] + cf_cols[1:]]), use_container_width=True)
     
     st.line_chart(df_yearly.set_index("年度")[["現預金残高", "借入金残高"]])
 
-st.download_button("CSV保存", df_all.to_csv(index=False).encode('utf-8-sig'), "sim_result.csv", "text/csv")
+st.download_button("CSV保存", df_all.to_csv(index=False).encode('utf-8-sig'), "sim_simple_result.csv", "text/csv")
