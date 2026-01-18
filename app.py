@@ -7,7 +7,7 @@ from dateutil.relativedelta import relativedelta
 st.set_page_config(page_title="5ヵ年財務シミュレーター", layout="wide")
 
 st.title("🏦 5ヵ年詳細財務シミュレーター")
-st.caption("中小法人税率対応・減価償却逓減モデル / 単位：千円")
+st.caption("M4 MacBook Air 最適化版 / 返済ロジック修正済み / 単位：千円")
 
 # --- 基準値入力 ---
 st.subheader("📌 シミュレーション基準値")
@@ -22,7 +22,7 @@ with st.container(border=True):
         ord_rate_val = st.number_input("経常利益率 (%)", value=3.0) / 100
     with c3:
         init_debt = st.number_input("期首借入金残高", value=50000)
-        monthly_repayment = st.number_input("借入金返済額 (月額)", value=500)
+        monthly_repayment_input = st.number_input("借入金返済額 (月額)", value=500)
     with c4:
         init_depr_annual = st.number_input("減価償却費 (1年目年額)", value=6000)
         depr_decay_rate = 0.90 # 減少率90%
@@ -60,7 +60,6 @@ for m in range(months):
     ord_profit = revenue * ord_rate_val
     
     # 3. 法人税計算 (所得800万以下15%, 超過23.2%の簡易モデル)
-    # 月次に直して計算
     tax_base = max(0, ord_profit)
     threshold_monthly = 8000 / 12
     if tax_base <= threshold_monthly:
@@ -71,23 +70,26 @@ for m in range(months):
     net_profit = ord_profit - tax
     
     # 4. キャッシュフロー計算
-    # 入金登録
+    # 売上入金の登録 (案件ごとの入金サイト)
     for _, row in df_projects.iterrows():
         c_date = target_date + relativedelta(months=int(row["入金サイト(ヶ月)"]))
         collection_schedule[c_date] = collection_schedule.get(c_date, 0) + row["月額売上(千円)"]
     
     cash_in = collection_schedule.get(target_date, 0)
+    
+    # 簡易CF ＝ 当期純利益 ＋ 減価償却費
     simple_cf = net_profit + monthly_depr
     
-    # 支出（売上 - 営業利益 - 償却費 = 実際の現金支出を伴う費用）
-    actual_expenses_out = revenue - op_profit - monthly_depr
-    
-    # 返済
-    actual_repayment = min(current_debt, simple_cf + monthly_repayment)
+    # 5. 借入金返済ロジック (【修正箇所】指定された月額のみを返済)
+    actual_repayment = min(current_debt, float(monthly_repayment_input))
     current_debt -= actual_repayment
     
-    # 現金残高更新
-    current_cash = current_cash + cash_in - actual_expenses_out - tax - actual_repayment
+    # 6. 現預金推移
+    # 営業費用(現金支出分) = 売上高 - 営業利益 - 減価償却費
+    cash_out_expenses = revenue - op_profit - monthly_depr
+    
+    # 残高更新: 前月残高 + 入金 - 経費(除償却) - 税金 - 借入返済
+    current_cash = current_cash + cash_in - cash_out_expenses - tax - actual_repayment
     
     sim_data.append({
         "年度": f"{year_idx + 1}年目",
@@ -112,13 +114,13 @@ for m in range(months):
 
 df_all = pd.DataFrame(sim_data)
 
-# --- 表示用処理 ---
+# --- 表示用フォーマット ---
 def format_df(df):
     return df.style.format({
         "売上高": "{:,.0f}", "売上原価": "{:,.0f}", "売上総利益": "{:,.0f}",
         "販管費": "{:,.0f}", "営業利益": "{:,.0f}", "経常利益": "{:,.0f}",
-        "法人税等": "{:,.0f}", "当期純利益": "{:,.0f}", "減価償却費": "{:,.0f}",
-        "簡易CF": "{:,.0f}", "返済額": "{:,.0f}", "借入金残高": "{:,.0f}",
+        "法人税等": "{:,.0f}", "当期純利益": "{:,.0f}", "減価償却費": "{:,.1f}",
+        "簡易CF": "{:,.1f}", "返済額": "{:,.0f}", "借入金残高": "{:,.0f}",
         "現預金残高": "{:,.0f}", "売上総利益率": "{:.1%}", "営業利益率": "{:.1%}", "経常利益率": "{:.1%}"
     })
 
@@ -135,14 +137,12 @@ with tab1:
     st.dataframe(format_df(df_all[cf_cols]), use_container_width=True)
 
 with tab2:
-    # 年次集計
     df_yearly = df_all.groupby("年度").agg({
         "売上高": "sum", "売上原価": "sum", "売上総利益": "sum", "販管費": "sum",
         "営業利益": "sum", "経常利益": "sum", "法人税等": "sum", "当期純利益": "sum",
         "減価償却費": "sum", "簡易CF": "sum", "返済額": "sum",
         "借入金残高": "last", "現預金残高": "last"
     }).reset_index()
-    # 比率の再計算
     df_yearly["売上総利益率"] = df_yearly["売上総利益"] / df_yearly["売上高"]
     df_yearly["営業利益率"] = df_yearly["営業利益"] / df_yearly["売上高"]
     df_yearly["経常利益率"] = df_yearly["経常利益"] / df_yearly["売上高"]
@@ -150,9 +150,7 @@ with tab2:
     st.subheader("📈 年次損益・CFサマリー")
     st.dataframe(format_df(df_yearly), use_container_width=True)
     
-    # グラフ
     st.line_chart(df_yearly.set_index("年度")[["現預金残高", "借入金残高"]])
 
-# ダウンロード
 csv = df_all.to_csv(index=False).encode('utf-8-sig')
 st.download_button("全データをCSVで保存", csv, "full_sim_result.csv", "text/csv")
