@@ -7,7 +7,7 @@ from dateutil.relativedelta import relativedelta
 st.set_page_config(page_title="高度経営シミュレーター", layout="wide")
 
 st.title("🏦 高度経営シミュレーター")
-st.caption("M4 MacBook Air 最適化 / プレミアム・デザイン / エラー修正版")
+st.caption("M4 MacBook Air 最適化 / 高コントラスト・デザイン / 財務三表分離版")
 
 # --- 1. 基準値入力 ---
 st.subheader("📌 シミュレーション基準値")
@@ -64,7 +64,8 @@ for m in range(months):
 
     total_rev = base_revenue + action_rev
     total_cos = (base_revenue * (1 - gp_rate_val)) + action_cos
-    total_gp, total_sga = total_rev - total_cos, (base_revenue * (gp_rate_val - op_rate_val)) + action_sga
+    total_gp = total_rev - total_cos
+    total_sga = (base_revenue * (gp_rate_val - op_rate_val)) + action_sga
     total_op = total_gp - total_sga
     total_ord = (total_rev * ord_rate_val) + (total_op - (base_revenue * op_rate_val))
     tax_base = max(0, total_ord)
@@ -77,56 +78,64 @@ for m in range(months):
     current_cash += cash_change
     
     res = {
-        "年月": target_date.strftime("%Y/%m"), "売上高": total_rev, "売上総利益": total_gp, 
-        "営業利益": total_op, "経常利益": total_ord, "当期純利益": net_profit, "簡易CF": simple_cf, 
-        "月返済額": actual_repayment, "現預金残高": current_cash, "月商倍率": current_cash / total_rev if total_rev > 0 else 0
+        "年月": target_date.strftime("%Y/%m"), "売上高": total_rev, "売上原価": total_cos, "売上総利益": total_gp, 
+        "販管費": total_sga, "営業利益": total_op, "経常利益": total_ord, "法人税等": tax, "当期純利益": net_profit, 
+        "減価償却費": monthly_depr, "簡易CF": simple_cf, "月返済額": actual_repayment, "借入金残高": current_debt, 
+        "現預金残高": current_cash, "現預金月商倍率": current_cash / total_rev if total_rev > 0 else 0
     }
     res.update(plan_impacts); sim_data.append(res)
 df_all = pd.DataFrame(sim_data).fillna(0)
 
-# --- 4. プレミアム・レンダリング関数 ---
-def render_financial_table(df, height=400):
-    # 表の中に実際に存在する列のみを対象にフォーマットを適用する
-    available_cols = df.columns
-    format_dict = {c: "{:,.0f}" for c in available_cols if c not in ["年月", "年度", "月商倍率"]}
-    if "月商倍率" in available_cols:
-        format_dict["月商倍率"] = "{:.2f}倍"
+# --- 4. プレミアム・レンダリング関数 (高視認性・ダークモード固定) ---
+def render_financial_table(df, height=350):
+    format_dict = {c: "{:,.0f}" for c in df.columns if c not in ["年月", "年度", "現預金月商倍率"]}
+    if "現預金月商倍率" in df.columns:
+        format_dict["現預金月商倍率"] = "{:.2f}倍"
     
+    # 背景を濃紺、文字を白に固定して、OSテーマに左右されない視認性を確保
     style = df.style.format(format_dict).set_table_styles([
-        {'selector': 'table', 'props': [('width', '100%'), ('border-collapse', 'collapse'), ('font-family', 'sans-serif'), ('font-size', '13px')]},
-        {'selector': 'th', 'props': [('background-color', '#1E1E1E'), ('color', '#FFFFFF'), ('position', 'sticky'), ('top', '0'), ('z-index', '10'), ('padding', '12px'), ('text-align', 'center')]},
-        {'selector': 'tr:nth-child(even)', 'props': [('background-color', 'rgba(128, 128, 128, 0.1)')]},
-        {'selector': 'td', 'props': [('padding', '10px'), ('border-bottom', '1px solid rgba(128,128,128,0.2)'), ('text-align', 'right')]},
-        {'selector': 'td:first-child', 'props': [('text-align', 'center'), ('font-weight', 'bold')]}
-    ], overwrite=False)
+        {'selector': 'table', 'props': [('width', '100%'), ('border-collapse', 'collapse'), ('font-family', 'sans-serif'), ('font-size', '13px'), ('background-color', '#0e1117'), ('color', '#ffffff')]},
+        {'selector': 'th', 'props': [('background-color', '#1f2937'), ('color', '#38bdf8'), ('position', 'sticky'), ('top', '0'), ('z-index', '10'), ('padding', '10px'), ('border', '1px solid #374151')]},
+        {'selector': 'tr:nth-child(even)', 'props': [('background-color', '#161b22')]},
+        {'selector': 'td', 'props': [('padding', '8px'), ('border', '1px solid #374151'), ('text-align', 'right')]},
+        {'selector': 'td:first-child', 'props': [('text-align', 'center'), ('font-weight', 'bold'), ('color', '#94a3b8')]}
+    ], overwrite=True)
 
     html = f"""
-    <div style="height:{height}px; overflow:auto; border:1px solid rgba(128,128,128,0.2); border-radius:10px;">
+    <div style="height:{height}px; overflow:auto; border:1px solid #374151; border-radius:8px;">
         {style.to_html(index=False)}
     </div>
     """
-    st.components.v1.html(html, height=height+20)
+    st.components.v1.html(html, height=height+10)
 
 # --- 5. メイン表示 ---
 tab1, tab2 = st.tabs(["📅 月次推移", "📊 年次まとめ"])
 with tab1:
-    st.subheader("📋 損益・資金繰り計画 (月次)")
-    render_financial_table(df_all)
+    pl_cols = ["年月", "売上高", "売上原価", "売上総利益", "販管費", "営業利益", "経常利益", "法人税等", "当期純利益"] + plan_names
+    st.subheader("📋 損益試算表 (月次)")
+    render_financial_table(df_all[pl_cols])
+    
+    st.markdown("<div style='margin: 20px 0;'></div>", unsafe_allow_html=True)
+    
+    cf_cols = ["年月", "当期純利益", "減価償却費", "簡易CF", "月返済額", "借入金残高", "現預金残高", "現預金月商倍率"]
+    st.subheader("📋 簡易CF計算書 (月次)")
+    render_financial_table(df_all[cf_cols])
 
 with tab2:
-    # 集計ロジックの修正: 存在するすべての数値列を合計し、現預金残高は期末残高をとる
     df_all['年度'] = df_all['年月'].apply(lambda x: x[:4] + "年度")
-    
-    # 合計すべき列（売上、利益、簡易CF、返済、および各プランの列）
-    agg_cols = ['売上高', '売上総利益', '営業利益', '経常利益', '当期純利益', '簡易CF', '月返済額'] + plan_names
-    agg_dict = {col: 'sum' for col in agg_cols if col in df_all.columns}
-    agg_dict['現預金残高'] = 'last' # 残高だけは「合計」ではなく「期末」
+    num_cols = df_all.select_dtypes(include=['number']).columns.tolist()
+    agg_dict = {col: 'sum' for col in num_cols if col not in ['現預金残高', '借入金残高', '現預金月商倍率']}
+    agg_dict.update({'現預金残高': 'last', '借入金残高': 'last'})
     
     df_yearly = df_all.groupby('年度').agg(agg_dict).reset_index()
-    df_yearly['月商倍率'] = df_yearly['現預金残高'] / (df_yearly['売上高'] / 12)
+    df_yearly['現預金月商倍率'] = df_yearly['現預金残高'] / (df_yearly['売上高'] / 12)
     
-    st.subheader("📊 年度別サマリー")
-    render_financial_table(df_yearly, height=300)
-    st.line_chart(df_yearly.set_index('年度')[['現預金残高']])
+    st.subheader("📊 年次損益試算表サマリー")
+    render_financial_table(df_yearly[["年度"] + [c for c in pl_cols if c != "年月"]])
+    
+    st.subheader("📊 年次簡易CF計算書サマリー")
+    render_financial_table(df_yearly[["年度"] + [c for c in cf_cols if c != "年月"]])
+    
+    st.line_chart(df_yearly.set_index('年度')[['現預金残高', '借入金残高']])
 
 st.download_button("CSV出力", df_all.to_csv(index=False).encode('utf-8-sig'), "finance_sim.csv")
