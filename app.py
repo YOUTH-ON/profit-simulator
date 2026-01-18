@@ -1,6 +1,7 @@
 import streamlit as st
 import pandas as pd
 import matplotlib.pyplot as plt
+import japanize_matplotlib  # 日本語化ライブラリ
 
 # ページ設定
 st.set_page_config(page_title="5ヵ年損益・資金推移シミュレーター", layout="wide")
@@ -11,7 +12,6 @@ st.caption("M4 MacBook Air 最適化版 / 単位：千円")
 # --- サイドバー：入力パラメータ ---
 st.sidebar.header("📈 入力設定（年額）")
 
-# 入力項目
 rev_0 = st.sidebar.number_input("基準売上高 (千円)", value=100000, step=1000)
 gp_rate = st.sidebar.slider("売上総利益率 (%)", 0, 100, 40) / 100
 op_rate = st.sidebar.slider("営業利益率 (%)", 0, 100, 10) / 100
@@ -29,7 +29,6 @@ current_cash = init_cash
 
 for year in years:
     if year == 0:
-        # 0年目は期首の状態のみ
         data.append({
             "年目": "0 (期首)",
             "売上高": 0,
@@ -42,21 +41,17 @@ for year in years:
             "現預金残高": current_cash
         })
     else:
-        # 1〜5年目の計算
-        # ※今回は簡易化のため売上高は一定としますが、将来的に成長率を加味することも可能です
         revenue = rev_0
         gross_profit = revenue * gp_rate
         operating_profit = revenue * op_rate
         simple_cf = operating_profit + depreciation
         
-        # 借入金返済ロジック
-        # 簡易CFと約定返済額の合計で返済が進むと仮定
+        # 借入金返済：簡易CF（営業利益+償却費）と約定返済額で返済
         total_repayment_capacity = simple_cf + debt_repayment
         repayment_actual = min(current_debt, total_repayment_capacity)
         current_debt -= repayment_actual
         
-        # 現預金（簡易的な推移：実際のキャッシュフロー計算書とは異なりますが目安として）
-        # 簡易CFから約定返済を引いた残りが現金に蓄積されると仮定
+        # 現預金推移（簡易：CF - 返済額を累積）
         current_cash += (simple_cf - debt_repayment)
 
         data.append({
@@ -101,7 +96,6 @@ st.pyplot(fig)
 
 # --- 数値テーブル ---
 st.subheader("詳細シミュレーション表")
-# カンマ区切りフォーマットを適用して表示
 st.dataframe(df_sim.style.format({
     "売上高": "{:,.0f}",
     "売上総利益": "{:,.0f}",
@@ -113,7 +107,7 @@ st.dataframe(df_sim.style.format({
     "現預金残高": "{:,.0f}"
 }))
 
-# CSVダウンロード機能
+# CSVダウンロード
 csv = df_sim.to_csv(index=False).encode('utf-8-sig')
 st.download_button(
     label="シミュレーション結果をCSVでダウンロード",
