@@ -4,10 +4,9 @@ from datetime import datetime, date
 from dateutil.relativedelta import relativedelta
 
 # ページ設定
-st.set_page_config(page_title="高度経営シミュレーター", layout="wide")
+st.set_page_config(page_title="PL＆CFシミュレーター", layout="wide")
 
-st.title("🏦 高度経営シミュレーター")
-st.caption("M4 MacBook Air 最適化 / 不具合修正・高コントラスト完成モデル")
+st.title("PL＆CFシミュレーター")
 
 # --- 1. 基準値入力 ---
 st.subheader("📌 シミュレーション基準値")
