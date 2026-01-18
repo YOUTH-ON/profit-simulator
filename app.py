@@ -7,7 +7,7 @@ from dateutil.relativedelta import relativedelta
 st.set_page_config(page_title="高度経営シミュレーター", layout="wide")
 
 st.title("🏦 高度経営シミュレーター")
-st.caption("M4 MacBook Air 最適化 / プレミアム・デザイン・エディション")
+st.caption("M4 MacBook Air 最適化 / プレミアム・デザイン / エラー修正版")
 
 # --- 1. 基準値入力 ---
 st.subheader("📌 シミュレーション基準値")
@@ -44,12 +44,15 @@ with col_input2:
 # --- 3. 計算ロジック ---
 months = 60
 sim_data, current_debt, current_cash = [], init_debt, init_cash
+plan_names = df_actions["プラン名"].tolist() if not df_actions.empty else []
+
 for m in range(months):
     target_date = start_month + relativedelta(months=m)
     year_idx = m // 12
     monthly_depr = (init_depr_annual * (depr_decay_rate ** year_idx)) / 12
     base_revenue = df_projects["月額売上(千円)"].sum()
-    action_rev, action_cos, action_sga, plan_impacts = 0, 0, 0, {}
+    
+    action_rev, action_cos, action_sga, plan_impacts = 0, 0, 0, {name: 0 for name in plan_names}
     if not df_actions.empty:
         for _, row in df_actions.iterrows():
             if target_date >= pd.to_datetime(row["効果開始月"]).date():
@@ -58,6 +61,7 @@ for m in range(months):
                 if row["計上種別"] == "売上高": action_rev += impact
                 elif row["計上種別"] == "売上原価": action_cos += impact
                 elif row["計上種別"] == "販管費": action_sga += impact
+
     total_rev = base_revenue + action_rev
     total_cos = (base_revenue * (1 - gp_rate_val)) + action_cos
     total_gp, total_sga = total_rev - total_cos, (base_revenue * (gp_rate_val - op_rate_val)) + action_sga
@@ -71,6 +75,7 @@ for m in range(months):
     current_debt -= actual_repayment
     cash_change = simple_cf - actual_repayment
     current_cash += cash_change
+    
     res = {
         "年月": target_date.strftime("%Y/%m"), "売上高": total_rev, "売上総利益": total_gp, 
         "営業利益": total_op, "経常利益": total_ord, "当期純利益": net_profit, "簡易CF": simple_cf, 
@@ -81,13 +86,15 @@ df_all = pd.DataFrame(sim_data).fillna(0)
 
 # --- 4. プレミアム・レンダリング関数 ---
 def render_financial_table(df, height=400):
-    format_dict = {c: "{:,.0f}" for c in df.columns if c not in ["年月", "月商倍率"]}
-    format_dict.update({"月商倍率": "{:.2f}倍"})
+    # 表の中に実際に存在する列のみを対象にフォーマットを適用する
+    available_cols = df.columns
+    format_dict = {c: "{:,.0f}" for c in available_cols if c not in ["年月", "年度", "月商倍率"]}
+    if "月商倍率" in available_cols:
+        format_dict["月商倍率"] = "{:.2f}倍"
     
-    # プレミアム・デザインCSS
     style = df.style.format(format_dict).set_table_styles([
-        {'selector': 'table', 'props': [('width', '100%'), ('border-collapse', 'collapse'), ('font-family', 'sans-serif'), ('font-size', '14px')]},
-        {'selector': 'th', 'props': [('background-color', '#1E1E1E'), ('color', '#FFFFFF'), ('position', 'sticky'), ('top', '0'), ('z-index', '10'), ('padding', '12px')]},
+        {'selector': 'table', 'props': [('width', '100%'), ('border-collapse', 'collapse'), ('font-family', 'sans-serif'), ('font-size', '13px')]},
+        {'selector': 'th', 'props': [('background-color', '#1E1E1E'), ('color', '#FFFFFF'), ('position', 'sticky'), ('top', '0'), ('z-index', '10'), ('padding', '12px'), ('text-align', 'center')]},
         {'selector': 'tr:nth-child(even)', 'props': [('background-color', 'rgba(128, 128, 128, 0.1)')]},
         {'selector': 'td', 'props': [('padding', '10px'), ('border-bottom', '1px solid rgba(128,128,128,0.2)'), ('text-align', 'right')]},
         {'selector': 'td:first-child', 'props': [('text-align', 'center'), ('font-weight', 'bold')]}
@@ -103,13 +110,21 @@ def render_financial_table(df, height=400):
 # --- 5. メイン表示 ---
 tab1, tab2 = st.tabs(["📅 月次推移", "📊 年次まとめ"])
 with tab1:
-    st.subheader("📋 損益・資金繰り計画")
+    st.subheader("📋 損益・資金繰り計画 (月次)")
     render_financial_table(df_all)
 
 with tab2:
+    # 集計ロジックの修正: 存在するすべての数値列を合計し、現預金残高は期末残高をとる
     df_all['年度'] = df_all['年月'].apply(lambda x: x[:4] + "年度")
-    df_yearly = df_all.groupby('年度').agg({'売上高':'sum', '売上総利益':'sum', '営業利益':'sum', '当期純利益':'sum', '簡易CF':'sum', '月返済額':'sum', '現預金残高':'last'}).reset_index()
+    
+    # 合計すべき列（売上、利益、簡易CF、返済、および各プランの列）
+    agg_cols = ['売上高', '売上総利益', '営業利益', '経常利益', '当期純利益', '簡易CF', '月返済額'] + plan_names
+    agg_dict = {col: 'sum' for col in agg_cols if col in df_all.columns}
+    agg_dict['現預金残高'] = 'last' # 残高だけは「合計」ではなく「期末」
+    
+    df_yearly = df_all.groupby('年度').agg(agg_dict).reset_index()
     df_yearly['月商倍率'] = df_yearly['現預金残高'] / (df_yearly['売上高'] / 12)
+    
     st.subheader("📊 年度別サマリー")
     render_financial_table(df_yearly, height=300)
     st.line_chart(df_yearly.set_index('年度')[['現預金残高']])
