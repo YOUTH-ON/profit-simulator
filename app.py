@@ -4,10 +4,10 @@ from datetime import datetime, date
 from dateutil.relativedelta import relativedelta
 
 # ページ設定
-st.set_page_config(page_title="損益・資金繰りシミュレーター", layout="wide")
+st.set_page_config(page_title="高度経営シミュレーター", layout="wide")
 
-st.title("📊 損益・資金繰りシミュレーター (簡便版)")
-st.caption("M4 MacBook Air 最適化 / 簡易CFベース資金推移 / 単位：千円")
+st.title("🚀 高度経営シミュレーター (視認性強化版)")
+st.caption("M4 MacBook Air 最適化 / 現預金月商倍率・ストライプ表表示 / 単位：千円")
 
 # --- 1. 基準値入力 ---
 st.subheader("📌 シミュレーション基準値")
@@ -63,7 +63,6 @@ months = 60
 sim_data = []
 current_debt = init_debt
 current_cash = init_cash
-collection_schedule = {}
 
 for m in range(months):
     target_date = start_month + relativedelta(months=m)
@@ -74,7 +73,6 @@ for m in range(months):
     monthly_depr = current_annual_depr / 12
     base_revenue = df_projects["月額売上(千円)"].sum()
     
-    # アクションプラン反映
     action_rev, action_cos, action_sga = 0, 0, 0
     plan_impacts = {}
     if not df_actions.empty:
@@ -98,16 +96,14 @@ for m in range(months):
     net_profit = total_ord - tax
 
     # --- 簡便CF 計算 ---
-    # 簡易CF = 当期純利益 + 減価償却費
     simple_cf = net_profit + monthly_depr
-    
-    # 返済
     actual_repayment = min(current_debt, float(monthly_repayment_input))
     current_debt -= actual_repayment
-    
-    # 現預金増減 ＝ 簡易CF － 月返済額
     cash_change = simple_cf - actual_repayment
     current_cash += cash_change
+    
+    # 現預金月商倍率
+    cash_sales_ratio = current_cash / total_rev if total_rev > 0 else 0
     
     res = {
         "年度": f"{year_idx + 1}年目", "年月": target_date.strftime("%Y/%m"),
@@ -117,44 +113,59 @@ for m in range(months):
         "法人税等": tax, "当期純利益": net_profit,
         "減価償却費": monthly_depr, "簡易CF": simple_cf,
         "月返済額": actual_repayment, "現預金増減": cash_change,
-        "借入金残高": current_debt, "現預金残高": current_cash
+        "借入金残高": current_debt, "現預金残高": current_cash,
+        "現預金月商倍率": cash_sales_ratio
     }
     res.update(plan_impacts)
     sim_data.append(res)
 
 df_all = pd.DataFrame(sim_data).fillna(0)
 
-# --- 4. 表示用 ---
-def format_df(df):
-    format_dict = {c: "{:,.0f}" for c in df.columns if c not in ["年度", "年月", "売上総利益率", "営業利益率", "経常利益率"]}
-    format_dict.update({"売上総利益率": "{:.1%}", "営業利益率": "{:.1%}", "経常利益率": "{:.1%}", "減価償却費": "{:,.1f}", "簡易CF": "{:,.1f}"})
-    return df.style.format(format_dict)
+# --- 4. スタイル適用関数（シマシマとフォーマット） ---
+def style_financial_df(df):
+    # 1行おきに背景色を変えるCSS（シマシマ）
+    def stripe_rows(x):
+        df_style = pd.DataFrame('', index=x.index, columns=x.columns)
+        df_style.iloc[::2, :] = 'background-color: #f9f9f9'
+        return df_style
 
+    format_dict = {c: "{:,.0f}" for c in df.columns if c not in ["年度", "年月", "売上総利益率", "営業利益率", "経常利益率", "現預金月商倍率"]}
+    format_dict.update({
+        "売上総利益率": "{:.1%}", "営業利益率": "{:.1%}", "経常利益率": "{:.1%}", 
+        "減価償却費": "{:,.1f}", "簡易CF": "{:,.1f}", "現預金月商倍率": "{:.2f}倍"
+    })
+    
+    return df.style.apply(stripe_rows, axis=None).format(format_dict)
+
+# --- 5. 画面構成 ---
 tab1, tab2 = st.tabs(["📅 月次シミュレーション", "📊 年次サマリー"])
 
 with tab1:
     st.subheader("📋 損益試算表 (月次)")
     plan_names = df_actions["プラン名"].tolist() if not df_actions.empty else []
     pl_cols = ["年月", "売上高", "売上原価", "売上総利益", "売上総利益率", "販管費", "営業利益", "営業利益率", "経常利益", "経常利益率", "法人税等", "当期純利益"]
-    st.dataframe(format_df(df_all[pl_cols + plan_names]), use_container_width=True)
+    st.dataframe(style_financial_df(df_all[pl_cols + plan_names]), use_container_width=True)
     
     st.subheader("📋 簡易CF計算書 (月次)")
-    cf_cols = ["年月", "当期純利益", "減価償却費", "簡易CF", "月返済額", "現預金増減", "借入金残高", "現預金残高"]
-    st.dataframe(format_df(df_all[cf_cols]), use_container_width=True)
+    cf_cols = ["年月", "当期純利益", "減価償却費", "簡易CF", "月返済額", "現預金増減", "借入金残高", "現預金残高", "現預金月商倍率"]
+    st.dataframe(style_financial_df(df_all[cf_cols]), use_container_width=True)
 
 with tab2:
-    agg_dict = {c: "sum" for c in df_all.columns if c not in ["年度", "年月", "売上総利益率", "営業利益率", "経常利益率", "借入金残高", "現預金残高"]}
+    agg_dict = {c: "sum" for c in df_all.columns if c not in ["年度", "年月", "売上総利益率", "営業利益率", "経常利益率", "現預金月商倍率", "借入金残高", "現預金残高"]}
     agg_dict.update({"借入金残高": "last", "現預金残高": "last"})
     df_yearly = df_all.groupby("年度").agg(agg_dict).reset_index()
+    
+    # 年次倍率計算（期末残高 / 年間平均月商）
+    df_yearly["現預金月商倍率"] = df_yearly["現預金残高"] / (df_yearly["売上高"] / 12)
     for p in ["売上総利益", "営業利益", "経常利益"]:
         df_yearly[f"{p}率"] = df_yearly[p] / df_yearly["売上高"]
 
     st.subheader("📊 年次損益試算表")
-    st.dataframe(format_df(df_yearly[["年度"] + pl_cols[1:] + plan_names]), use_container_width=True)
+    st.dataframe(style_financial_df(df_yearly[["年度"] + pl_cols[1:] + plan_names]), use_container_width=True)
     
     st.subheader("📊 年次簡易CF計算書")
-    st.dataframe(format_df(df_yearly[["年度"] + cf_cols[1:]]), use_container_width=True)
+    st.dataframe(style_financial_df(df_yearly[["年度"] + cf_cols[1:]]), use_container_width=True)
     
     st.line_chart(df_yearly.set_index("年度")[["現預金残高", "借入金残高"]])
 
-st.download_button("CSV保存", df_all.to_csv(index=False).encode('utf-8-sig'), "sim_simple_result.csv", "text/csv")
+st.download_button("CSV保存", df_all.to_csv(index=False).encode('utf-8-sig'), "sim_result.csv", "text/csv")
