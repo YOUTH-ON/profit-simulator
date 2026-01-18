@@ -1,13 +1,11 @@
 import streamlit as st
 import pandas as pd
-import matplotlib.pyplot as plt
-import japanize_matplotlib  # 日本語化ライブラリ
 
 # ページ設定
 st.set_page_config(page_title="5ヵ年損益・資金推移シミュレーター", layout="wide")
 
 st.title("📊 5ヵ年損益・資金推移シミュレーター")
-st.caption("M4 MacBook Air 最適化版 / 単位：千円")
+st.caption("M4 MacBook Air 最適化版（高互換モード） / 単位：千円")
 
 # --- サイドバー：入力パラメータ ---
 st.sidebar.header("📈 入力設定（年額）")
@@ -30,38 +28,31 @@ current_cash = init_cash
 for year in years:
     if year == 0:
         data.append({
-            "年目": "0 (期首)",
+            "年目": "0",
             "売上高": 0,
-            "売上総利益": 0,
             "営業利益": 0,
-            "減価償却費": 0,
             "簡易CF": 0,
-            "借入金返済額": 0,
             "借入金残高": current_debt,
             "現預金残高": current_cash
         })
     else:
         revenue = rev_0
-        gross_profit = revenue * gp_rate
         operating_profit = revenue * op_rate
         simple_cf = operating_profit + depreciation
         
-        # 借入金返済：簡易CF（営業利益+償却費）と約定返済額で返済
+        # 借入金返済
         total_repayment_capacity = simple_cf + debt_repayment
         repayment_actual = min(current_debt, total_repayment_capacity)
         current_debt -= repayment_actual
         
-        # 現預金推移（簡易：CF - 返済額を累積）
+        # 現預金推移
         current_cash += (simple_cf - debt_repayment)
 
         data.append({
-            "年目": f"{year}年目",
+            "年目": str(year),
             "売上高": revenue,
-            "売上総利益": gross_profit,
             "営業利益": operating_profit,
-            "減価償却費": depreciation,
             "簡易CF": simple_cf,
-            "借入金返済額": debt_repayment,
             "借入金残高": current_debt,
             "現預金残高": current_cash
         })
@@ -77,40 +68,35 @@ with col2:
 
 st.divider()
 
-# --- グラフ表示 ---
-st.subheader("借入金残高と簡易CFの推移")
-fig, ax1 = plt.subplots(figsize=(10, 5))
+# --- グラフ表示（Streamlitネイティブグラフ） ---
+st.subheader("財務推移の可視化")
 
-# 借入金残高（棒グラフ）
-ax1.bar(df_sim["年目"], df_sim["借入金残高"], color="#FF9999", label="借入金残高", alpha=0.7)
-ax1.set_ylabel("借入金残高 (千円)")
-ax1.legend(loc="upper left")
+# グラフ用のデータ整形
+df_plot = df_sim.set_index("年目")
 
-# 簡易CF（折れ線グラフ）
-ax2 = ax1.twinx()
-ax2.plot(df_sim["年目"], df_sim["簡易CF"], color="#0066CC", marker="o", label="簡易CF (営業利益+償却費)")
-ax2.set_ylabel("簡易CF (千円)")
-ax2.legend(loc="upper right")
+col_left, col_right = st.columns(2)
+with col_left:
+    st.write("▼ 借入金残高の推移")
+    st.bar_chart(df_plot["借入金残高"])
 
-st.pyplot(fig)
+with col_right:
+    st.write("▼ 簡易CFと現預金の推移")
+    st.line_chart(df_plot[["簡易CF", "現預金残高"]])
 
 # --- 数値テーブル ---
 st.subheader("詳細シミュレーション表")
 st.dataframe(df_sim.style.format({
     "売上高": "{:,.0f}",
-    "売上総利益": "{:,.0f}",
     "営業利益": "{:,.0f}",
-    "減価償却費": "{:,.0f}",
     "簡易CF": "{:,.0f}",
-    "借入金返済額": "{:,.0f}",
     "借入金残高": "{:,.0f}",
     "現預金残高": "{:,.0f}"
-}))
+}), use_container_width=True)
 
 # CSVダウンロード
 csv = df_sim.to_csv(index=False).encode('utf-8-sig')
 st.download_button(
-    label="シミュレーション結果をCSVでダウンロード",
+    label="結果をCSVで保存",
     data=csv,
     file_name='profit_debt_simulation.csv',
     mime='text/csv',
