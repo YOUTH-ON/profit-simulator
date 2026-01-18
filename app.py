@@ -6,8 +6,8 @@ from dateutil.relativedelta import relativedelta
 # ページ設定
 st.set_page_config(page_title="高度経営シミュレーター", layout="wide")
 
-st.title("🚀 高度経営シミュレーター (最終完成版)")
-st.caption("M4 MacBook Air 最適化 / 視認性・操作性・テーマフリー対応 / 単位：千円")
+st.title("🏦 高度経営シミュレーター")
+st.caption("M4 MacBook Air 最適化 / プレミアム・デザイン・エディション")
 
 # --- 1. 基準値入力 ---
 st.subheader("📌 シミュレーション基準値")
@@ -31,43 +31,24 @@ st.divider()
 
 # --- 2. 案件別売上明細 & アクションプラン入力 ---
 col_input1, col_input2 = st.columns(2)
-
 with col_input1:
     st.subheader("📝 案件別売上明細")
     default_projects = pd.DataFrame([{"案件名": "既存案件A", "月額売上(千円)": 10000, "入金サイト(ヶ月)": 1}])
     df_projects = st.data_editor(default_projects, num_rows="dynamic", use_container_width=True, key="proj_editor")
-
 with col_input2:
     st.subheader("🛠️ アクションプラン")
     action_categories = ["売上高", "売上原価", "販管費"]
     default_actions = pd.DataFrame([{"計上種別": "売上高", "プラン名": "新規販路拡大", "月間効果額": 2000, "効果開始月": start_month + relativedelta(months=6)}])
-    df_actions = st.data_editor(
-        default_actions,
-        num_rows="dynamic",
-        use_container_width=True,
-        column_config={
-            "計上種別": st.column_config.SelectboxColumn(options=action_categories, required=True),
-            "効果開始月": st.column_config.DateColumn(format="YYYY/MM")
-        },
-        key="action_editor"
-    )
-
-st.divider()
+    df_actions = st.data_editor(default_actions, num_rows="dynamic", use_container_width=True, key="action_editor")
 
 # --- 3. 計算ロジック ---
 months = 60
-sim_data = []
-current_debt = init_debt
-current_cash = init_cash
-
+sim_data, current_debt, current_cash = [], init_debt, init_cash
 for m in range(months):
     target_date = start_month + relativedelta(months=m)
     year_idx = m // 12
-    
-    # P/L 計算
     monthly_depr = (init_depr_annual * (depr_decay_rate ** year_idx)) / 12
     base_revenue = df_projects["月額売上(千円)"].sum()
-    
     action_rev, action_cos, action_sga, plan_impacts = 0, 0, 0, {}
     if not df_actions.empty:
         for _, row in df_actions.iterrows():
@@ -77,103 +58,60 @@ for m in range(months):
                 if row["計上種別"] == "売上高": action_rev += impact
                 elif row["計上種別"] == "売上原価": action_cos += impact
                 elif row["計上種別"] == "販管費": action_sga += impact
-
     total_rev = base_revenue + action_rev
     total_cos = (base_revenue * (1 - gp_rate_val)) + action_cos
-    total_gp = total_rev - total_cos
-    total_sga = (base_revenue * (gp_rate_val - op_rate_val)) + action_sga
+    total_gp, total_sga = total_rev - total_cos, (base_revenue * (gp_rate_val - op_rate_val)) + action_sga
     total_op = total_gp - total_sga
     total_ord = (total_rev * ord_rate_val) + (total_op - (base_revenue * op_rate_val))
-    
     tax_base = max(0, total_ord)
     tax = (min(tax_base, 8000/12) * 0.15) + (max(0, tax_base - 8000/12) * 0.232)
     net_profit = total_ord - tax
-
-    # 簡便CF 計算
     simple_cf = net_profit + monthly_depr
     actual_repayment = min(current_debt, float(monthly_repayment_input))
     current_debt -= actual_repayment
     cash_change = simple_cf - actual_repayment
     current_cash += cash_change
-    
     res = {
-        "年度": f"{year_idx + 1}年目", "年月": target_date.strftime("%Y/%m"),
-        "売上高": total_rev, "売上原価": total_cos, "売上総利益": total_gp, "売上総利益率": total_gp/total_rev if total_rev!=0 else 0,
-        "販管費": total_sga, "営業利益": total_op, "営業利益率": total_op/total_rev if total_rev!=0 else 0,
-        "経常利益": total_ord, "経常利益率": total_ord/total_rev if total_rev!=0 else 0,
-        "法人税等": tax, "当期純利益": net_profit,
-        "減価償却費": monthly_depr, "簡易CF": simple_cf,
-        "月返済額": actual_repayment, "現預金増減": cash_change,
-        "借入金残高": current_debt, "現預金残高": current_cash,
-        "現預金月商倍率": current_cash / total_rev if total_rev > 0 else 0
+        "年月": target_date.strftime("%Y/%m"), "売上高": total_rev, "売上総利益": total_gp, 
+        "営業利益": total_op, "経常利益": total_ord, "当期純利益": net_profit, "簡易CF": simple_cf, 
+        "月返済額": actual_repayment, "現預金残高": current_cash, "月商倍率": current_cash / total_rev if total_rev > 0 else 0
     }
-    res.update(plan_impacts)
-    sim_data.append(res)
-
+    res.update(plan_impacts); sim_data.append(res)
 df_all = pd.DataFrame(sim_data).fillna(0)
 
-# --- 4. デバイスフリー・ストライプ・スクロール表示関数 ---
-def display_styled_table(df):
-    format_dict = {c: "{:,.0f}" for c in df.columns if c not in ["年度", "年月", "売上総利益率", "営業利益率", "経常利益率", "現預金月商倍率"]}
-    format_dict.update({
-        "売上総利益率": "{:.1%}", "営業利益率": "{:.1%}", "経常利益率": "{:.1%}", 
-        "減価償却費": "{:,.1f}", "簡易CF": "{:,.1f}", "現預金月商倍率": "{:.2f}倍"
-    })
+# --- 4. プレミアム・レンダリング関数 ---
+def render_financial_table(df, height=400):
+    format_dict = {c: "{:,.0f}" for c in df.columns if c not in ["年月", "月商倍率"]}
+    format_dict.update({"月商倍率": "{:.2f}倍"})
     
-    # Pandas Stylerでスタイル定義
-    styled_df = df.style.format(format_dict).set_table_styles([
-        # 縞模様（rgbaでダーク/ライト両対応）
-        {'selector': 'tr:nth-child(even)', 'props': [('background-color', 'rgba(128, 128, 128, 0.15)')]},
-        # ヘッダー固定（Sticky Header）
-        {'selector': 'th', 'props': [
-            ('background-color', '#262730'), # Streamlitの標準ダーク色に近い色で固定
-            ('color', 'white'),
-            ('position', 'sticky'),
-            ('top', '0'),
-            ('z-index', '2')
-        ]},
-        {'selector': 'td', 'props': [('border', '0.1px solid rgba(128,128,128,0.1)'), ('padding', '8px')]}
-    ])
-    
-    # スクロール可能なコンテナで包む
-    html_output = f"""
-    <div style="max-height: 450px; overflow-y: auto; overflow-x: auto; border: 1px solid rgba(128,128,128,0.3); border-radius: 8px;">
-        {styled_df.to_html(index=False)}
+    # プレミアム・デザインCSS
+    style = df.style.format(format_dict).set_table_styles([
+        {'selector': 'table', 'props': [('width', '100%'), ('border-collapse', 'collapse'), ('font-family', 'sans-serif'), ('font-size', '14px')]},
+        {'selector': 'th', 'props': [('background-color', '#1E1E1E'), ('color', '#FFFFFF'), ('position', 'sticky'), ('top', '0'), ('z-index', '10'), ('padding', '12px')]},
+        {'selector': 'tr:nth-child(even)', 'props': [('background-color', 'rgba(128, 128, 128, 0.1)')]},
+        {'selector': 'td', 'props': [('padding', '10px'), ('border-bottom', '1px solid rgba(128,128,128,0.2)'), ('text-align', 'right')]},
+        {'selector': 'td:first-child', 'props': [('text-align', 'center'), ('font-weight', 'bold')]}
+    ], overwrite=False)
+
+    html = f"""
+    <div style="height:{height}px; overflow:auto; border:1px solid rgba(128,128,128,0.2); border-radius:10px;">
+        {style.to_html(index=False)}
     </div>
     """
-    st.write(html_output, unsafe_allow_html=True)
+    st.components.v1.html(html, height=height+20)
 
-# --- 5. 画面構成 ---
-tab1, tab2 = st.tabs(["📅 月次シミュレーション", "📊 年次サマリー"])
-
+# --- 5. メイン表示 ---
+tab1, tab2 = st.tabs(["📅 月次推移", "📊 年次まとめ"])
 with tab1:
-    plan_names = df_actions["プラン名"].tolist() if not df_actions.empty else []
-    
-    st.subheader("📋 損益試算表 (月次)")
-    pl_cols = ["年月", "売上高", "売上原価", "売上総利益", "売上総利益率", "販管費", "営業利益", "営業利益率", "経常利益", "経常利益率", "法人税等", "当期純利益"]
-    display_styled_table(df_all[pl_cols + plan_names])
-    
-    st.markdown("<br>", unsafe_allow_html=True) # 余白
-    
-    st.subheader("📋 簡易CF計算書 (月次)")
-    cf_cols = ["年月", "当期純利益", "減価償却費", "簡易CF", "月返済額", "現預金増減", "借入金残高", "現預金残高", "現預金月商倍率"]
-    display_styled_table(df_all[cf_cols])
+    st.subheader("📋 損益・資金繰り計画")
+    render_financial_table(df_all)
 
 with tab2:
-    agg_dict = {c: "sum" for c in df_all.columns if c not in ["年度", "年月", "売上総利益率", "営業利益率", "経常利益率", "現預金月商倍率", "借入金残高", "現預金残高"]}
-    agg_dict.update({"借入金残高": "last", "現預金残高": "last"})
-    df_yearly = df_all.groupby("年度").agg(agg_dict).reset_index()
-    
-    df_yearly["現預金月商倍率"] = df_yearly["現預金残高"] / (df_yearly["売上高"] / 12)
-    for p in ["売上総利益", "営業利益", "経常利益"]:
-        df_yearly[f"{p}率"] = df_yearly[p] / df_yearly["売上高"]
+    df_all['年度'] = df_all['年月'].apply(lambda x: x[:4] + "年度")
+    df_yearly = df_all.groupby('年度').agg({'売上高':'sum', '売上総利益':'sum', '営業利益':'sum', '当期純利益':'sum', '簡易CF':'sum', '月返済額':'sum', '現預金残高':'last'}).reset_index()
+    df_yearly['月商倍率'] = df_yearly['現預金残高'] / (df_yearly['売上高'] / 12)
+    st.subheader("📊 年度別サマリー")
+    render_financial_table(df_yearly, height=300)
+    st.line_chart(df_yearly.set_index('年度')[['現預金残高']])
 
-    st.subheader("📊 年次損益試算表")
-    display_styled_table(df_yearly[["年度"] + pl_cols[1:] + plan_names])
-    
-    st.subheader("📊 年次簡易CF計算書")
-    display_styled_table(df_yearly[["年度"] + cf_cols[1:]])
-    
-    st.line_chart(df_yearly.set_index("年度")[["現預金残高", "借入金残高"]])
-
-st.download_button("CSV保存", df_all.to_csv(index=False).encode('utf-8-sig'), "sim_result.csv", "text/csv")
+st.download_button("CSV出力", df_all.to_csv(index=False).encode('utf-8-sig'), "finance_sim.csv")
